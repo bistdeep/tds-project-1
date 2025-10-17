@@ -159,30 +159,27 @@ def call_llm(prompt: str) -> str:
     return response.json()["choices"][0]["message"]["content"]
 
 
-def decode_attachments(attachments: list) -> list:
-    decoded_files = []
+def write_code_with_llm(brief: str, checks: list, attachments: list):
+    attachment_context = ""
     for attachment in attachments or []:
         name = attachment.get("name")
         data_uri = attachment.get("url")
-        if isinstance(data_uri, str) and data_uri.startswith("data:"):
-            try:
-                _, data = data_uri.split(",", 1)
-                content = base64.b64decode(data)
-                decoded_files.append({"name": name, "content": content})
-            except Exception:
-                decoded_files.append({"name": name, "content": b""})
-    return decoded_files
 
+        if not (isinstance(data_uri, str) and data_uri.startswith("data:")):
+            continue # Skip if not a valid data URI
 
-def write_code_with_llm(brief: str, checks: list, attachments: list):
-    decoded_attachments = decode_attachments(attachments or [])
-    attachment_context = ""
-    for f in decoded_attachments:
+        attachment_context += f"\n\nAttachment {name}:\n"
+        
         try:
-            attachment_context += f"\n\nAttachment {f['name']}:\n{f['content'].decode('utf-8')}"
+            # Try to decode as text (for JSON, CSV, etc.)
+            header, data = data_uri.split(",", 1)
+            content_bytes = base64.b64decode(data)
+            content_text = content_bytes.decode('utf-8')
+            attachment_context += content_text
         except Exception:
-            attachment_context += f"\n\nAttachment {f['name']}: [binary]"
-
+            # If it fails (it's binary like an image),
+            # pass the ENTIRE data URI to the LLM.
+            attachment_context += f"[Binary content - use this data URI directly in HTML: {data_uri}]"   
     prompt = f"""
 You are an assistant that generates a static web application deployable to GitHub Pages.
 
@@ -235,13 +232,31 @@ Example JSON (use this exact structure):
 
 
 def update_code_with_llm(brief: str, checks: list, attachments: list, repo_name: str, existing_files: list):
-    decoded_attachments = decode_attachments(attachments or [])
+    #
+    # --- START OF FIX ---
+    #
     attachment_context = ""
-    for f in decoded_attachments:
+    for attachment in attachments or []:
+        name = attachment.get("name")
+        data_uri = attachment.get("url")
+
+        if not (isinstance(data_uri, str) and data_uri.startswith("data:")):
+            continue
+
+        attachment_context += f"\n\nAttachment {name}:\n"
+        
         try:
-            attachment_context += f"\n\nAttachment {f['name']}:\n{f['content'].decode('utf-8')}"
+            # Try to decode as text
+            header, data = data_uri.split(",", 1)
+            content_bytes = base64.b64decode(data)
+            content_text = content_bytes.decode('utf-8')
+            attachment_context += content_text
         except Exception:
-            attachment_context += f"\n\nAttachment {f['name']}: [binary]"
+            # Pass the data URI directly
+            attachment_context += f"[Binary content - use this data URI directly in HTML: {data_uri}]"
+    #
+    # --- END OF FIX ---
+    #
 
     existing_context = ""
     for ef in existing_files or []:
@@ -309,7 +324,6 @@ Example JSON for updates:
     
     print(f"Prepared {len(filtered)} files for update")
     return filtered
-
 
 def ping_evaluation_server(evaluation_url: str, payload: dict, max_retries: int = 3):
     headers = {"Content-Type": "application/json"}
@@ -464,13 +478,12 @@ def handle_task(data: dict, background_tasks: BackgroundTasks):
         print(f"Error validating task: {e}")
         raise HTTPException(status_code=500, detail=f"Task validation failed: {str(e)}")
 
-@app.get('/')
+@app.get("/")
 def hello():
-    return {'text' : 'Hello from Dipanshu!!'}
-
+    return {"text" : "hiiiiiiiiii from dipanshu."}
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 
